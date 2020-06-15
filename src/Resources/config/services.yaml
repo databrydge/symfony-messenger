@@ -3,3 +3,4 @@ services:
     Bref\Symfony\Messenger\Service\SimpleBusDriver:
         arguments:
             - '@logger'
+            - '@event_dispatcher'
