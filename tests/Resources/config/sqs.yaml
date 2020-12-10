@@ -1,4 +1,3 @@
-
 framework:
     messenger:
         transports:
@@ -6,25 +5,13 @@ framework:
         routing:
             'Bref\Symfony\Messenger\Test\Resources\TestMessage\TestMessage': foo
 
-
-bref_messenger:
-    sqs: true
-
 services:
-    Aws\Sqs\SqsClient:
-        $config:
-            version: latest
-            region: us-east-1
-            credentials: false
-            # Mock Guzzle for the tests
-            handler: '@mock_handler'
-
-    mock_handler:
-        class: Aws\MockHandler
+    bref.messenger.sqs_client:
+        class: AsyncAws\Sqs\SqsClient
         public: true
 
     my_sqs_consumer:
-        class: Bref\Messenger\Service\Sqs\SqsConsumer
+        class: Bref\Symfony\Messenger\Service\Sqs\SqsConsumer
         arguments:
             - '@Bref\Symfony\Messenger\Service\BusDriver'
             - '@messenger.routable_message_bus'
