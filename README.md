@@ -46,7 +46,7 @@ framework:
 
 ### SQS
 
-The [SQS](https://aws.amazon.com/sqs/) service is a queue that works similar to RabbitMQ. To use it, create a SQS queue and set its URL as the DSN:
+The [SQS](https://aws.amazon.com/sqs/) service is a queue that works similar to RabbitMQ. To use it, set its URL in the environment variable `MESSENGER_TRANSPORT_DSN`:
 
 ```dotenv
 MESSENGER_TRANSPORT_DSN=https://sqs.us-east-1.amazonaws.com/123456789/my-queue
@@ -58,11 +58,62 @@ The implementation uses the SQS transport provided by [Symfony Amazon SQS Messen
 so all those features are supported. If you already use that transport, the transition to AWS Lamdba is very easy and 
 should not require any change for dispatching messages. 
 
-> Note: when running Symfony on AWS Lambda, it is not necessary to configure credentials. The AWS client will read them [from environment variables](https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html#configuration-envvars-runtime) automatically.
+#### Create the SQS queue
 
-To consume messages from SQS:
+You can create the Queue yourself in the Console, write custom Cloudformation 
+or use [Lift's Queue construct](https://github.com/getlift/lift/blob/master/docs/queue.md) that will handle that for you. 
 
-1. Create the function that will be invoked by SQS in `serverless.yml`:
+Here is a simple example with Lift, make sure to [install the plugin first](https://github.com/getlift/lift#installation) and check out the [full documentation](https://github.com/getlift/lift/blob/master/docs/queue.md) for more details. 
+
+```yaml
+# serverless.yml
+
+service: my-app
+provider:
+    name: aws
+    environment:
+        ...
+        MESSENGER_TRANSPORT_DSN: ${construct:jobs.queueUrl}
+
+constructs:
+    jobs:
+        type: queue
+        worker:
+            handler: bin/consumer.php
+            timeout: 20 # in seconds
+            reservedConcurrency: 5 # max. 5 messages processed in parallel
+            layers:
+                - ${bref:layer.php-80}
+
+plugins:
+    - serverless-lift
+```
+
+In all cases, you would want to disable `auto_setup` to avoid extra requests and permission issues.
+
+```yaml
+# config/packages/messenger.yaml
+
+framework:
+    messenger:
+        transports:
+            async: 
+                dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
+                options:
+                    auto_setup: false
+```
+
+#### Add permissions
+
+When running Symfony on AWS Lambda, it is not necessary to configure credentials. The AWS client will read them [from environment variables](https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html#configuration-envvars-runtime) automatically.
+
+You just have to provide the correct [role statements](https://www.serverless.com/framework/docs/providers/aws/guide/iam/) in `serverless.yml` and Lambda will take care of the rest. The required IAM permission to publish to SQS using Messenger is `sqs:SendMessage` on the given queue.
+
+If you use Lift, this is done automatically for you.
+
+#### Consume messages from SQS
+
+1. **If you don't use Lift**, create the function that will be invoked by SQS in `serverless.yml`:
 
 ```yaml
 functions:
@@ -71,7 +122,7 @@ functions:
         timeout: 20 # in seconds
         reservedConcurrency: 5 # max. 5 messages processed in parallel
         layers:
-            - ${bref:layer.php-74}
+            - ${bref:layer.php-80}
         events:
             # Read more at https://www.serverless.com/framework/docs/providers/aws/events/sqs/
             - sqs:
@@ -96,7 +147,7 @@ $kernel->boot();
 return $kernel->getContainer()->get(SqsConsumer::class);
 ```
 
-If you are using Symfony 5.1, use this instead:
+If you are using Symfony 5.1 or later, use this instead:
 
 ```php
 <?php declare(strict_types=1);
@@ -126,6 +177,10 @@ services:
         arguments:
             # Pass the transport name used in config/packages/messenger.yaml
             $transportName: 'async'
+            # true enables partial SQS batch failure
+            # Enabling this without proper SQS config will consider all your messages successful
+            # See https://bref.sh/docs/function/handlers.html#partial-batch-response for more details.
+            $partialBatchFailure: false
 ```
 
 Now, anytime a message is dispatched to SQS, the Lambda function will be called. The Bref consumer class will put back the message into Symfony Messenger to be processed.
@@ -191,7 +246,7 @@ functions:
         timeout: 20 # in seconds
         reservedConcurrency: 5 # max. 5 messages processed in parallel
         layers:
-            - ${bref:layer.php-74}
+            - ${bref:layer.php-80}
         events:
             # Read more at https://www.serverless.com/framework/docs/providers/aws/events/sns/
             - sns:
@@ -238,6 +293,11 @@ AWS [EventBridge](https://aws.amazon.com/eventbridge/) is a message routing serv
 # This source name will be reused in `serverless.yml` later.
 MESSENGER_TRANSPORT_DSN=eventbridge://myapp
 ```
+Optionally you can add set the [EventBusName](https://docs.aws.amazon.com/eventbridge/latest/APIReference/API_PutEventsRequestEntry.html#eventbridge-Type-PutEventsRequestEntry-EventBusName) via a `event_bus_name` query parameter, either the name or the ARN:
+```dotenv
+MESSENGER_TRANSPORT_DSN=eventbridge://myapp?event_bus_name=custom-bus
+MESSENGER_TRANSPORT_DSN=eventbridge://myapp?event_bus_name=arn:aws:events:us-east-1:123456780912:event-bus/custom-bus
+```
 
 That's it, messages will be dispatched to EventBridge.
 
@@ -254,7 +314,7 @@ functions:
         timeout: 20 # in seconds
         reservedConcurrency: 5 # max. 5 messages processed in parallel
         layers:
-            - ${bref:layer.php-74}
+            - ${bref:layer.php-80}
         events:
             # Read more at https://www.serverless.com/framework/docs/providers/aws/events/event-bridge/
             -   eventBridge:

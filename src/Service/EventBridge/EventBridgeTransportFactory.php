@@ -2,28 +2,35 @@
 
 namespace Bref\Symfony\Messenger\Service\EventBridge;
 
-use Psr\Container\ContainerInterface;
+use AsyncAws\EventBridge\EventBridgeClient;
+use Symfony\Component\Messenger\Exception\InvalidArgumentException;
 use Symfony\Component\Messenger\Transport\Serialization\SerializerInterface;
 use Symfony\Component\Messenger\Transport\TransportFactoryInterface;
 use Symfony\Component\Messenger\Transport\TransportInterface;
 
 final class EventBridgeTransportFactory implements TransportFactoryInterface
 {
-    /** @var ContainerInterface */
-    private $container;
+    /** @var EventBridgeClient */
+    private $eventBridge;
 
-    public function __construct(ContainerInterface $container)
+    public function __construct(EventBridgeClient $eventBridge)
     {
-        $this->container = $container;
+        $this->eventBridge = $eventBridge;
     }
+
 
     public function createTransport(string $dsn, array $options, SerializerInterface $serializer): TransportInterface
     {
-        $source = substr($dsn, strlen('eventbridge://'));
+        if (false === $parsedUrl = parse_url($dsn)) {
+            throw new InvalidArgumentException(sprintf('The given EventBridge DSN "%s" is invalid.', $dsn));
+        }
 
-        $eventBridge = $this->container->get('bref.messenger.eventbridge_client');
+        $query = [];
+        if (isset($parsedUrl['query'])) {
+            parse_str($parsedUrl['query'], $query);
+        }
 
-        return new EventBridgeTransport($eventBridge, $serializer, $source);
+        return new EventBridgeTransport($this->eventBridge, $serializer, $parsedUrl['host'], $query['event_bus_name'] ?? null);
     }
 
     public function supports(string $dsn, array $options): bool
