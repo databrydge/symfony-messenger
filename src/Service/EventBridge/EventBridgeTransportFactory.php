@@ -2,8 +2,7 @@
 
 namespace Bref\Symfony\Messenger\Service\EventBridge;
 
-use AsyncAws\EventBridge\EventBridgeClient;
-use Psr\Container\ContainerInterface;
+use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 use Symfony\Component\Messenger\Exception\InvalidArgumentException;
 use Symfony\Component\Messenger\Transport\Serialization\SerializerInterface;
 use Symfony\Component\Messenger\Transport\TransportFactoryInterface;
@@ -11,17 +10,17 @@ use Symfony\Component\Messenger\Transport\TransportInterface;
 
 final class EventBridgeTransportFactory implements TransportFactoryInterface
 {
-    /** @var ContainerInterface */
-    private $container;
+    /** @var ParameterBagInterface */
+    private ParameterBagInterface $parameterBag;
 
-    public function __construct(ContainerInterface $container)
+    public function __construct(ParameterBagInterface $parameterBag)
     {
-        $this->container = $container;
+        $this->parameterBag = $parameterBag;
     }
 
     public function createTransport(string $dsn, array $options, SerializerInterface $serializer): TransportInterface
     {
-        $eventBridge = $this->container->get('bref.messenger.eventbridge_client');
+        $eventBridge = $this->parameterBag->get('bref.messenger.eventbridge_client');
         if (false === $parsedUrl = parse_url($dsn)) {
             throw new InvalidArgumentException(sprintf('The given EventBridge DSN "%s" is invalid.', $dsn));
         }
