@@ -19,12 +19,15 @@ final class EventBridgeTransport implements TransportInterface
     private $eventBridge;
     /** @var string */
     private $source;
+    /** @var string */
+    private $eventBusName;
 
-    public function __construct(EventBridgeClient $sns, SerializerInterface $serializer, string $source)
+    public function __construct(EventBridgeClient $eventBridge, SerializerInterface $serializer, string $source, ?string $eventBusName = null)
     {
-        $this->eventBridge = $sns;
-        $this->serializer = $serializer ?? new PhpSerializer;
+        $this->eventBridge = $eventBridge;
+        $this->serializer = $serializer;
         $this->source = $source;
+        $this->eventBusName = $eventBusName;
     }
 
     public function send(Envelope $envelope): Envelope
@@ -40,6 +43,10 @@ final class EventBridgeTransport implements TransportInterface
                 ],
             ],
         ];
+
+        if ($this->eventBusName) {
+            $arguments['Entries'][0]['EventBusName'] = $this->eventBusName;
+        }
 
         try {
             $result = $this->eventBridge->putEvents($arguments);
