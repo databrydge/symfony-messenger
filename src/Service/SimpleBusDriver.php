@@ -4,40 +4,68 @@ namespace Bref\Symfony\Messenger\Service;
 
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Messenger\Envelope;
+use Symfony\Component\Messenger\Event\WorkerMessageFailedEvent;
+use Symfony\Component\Messenger\Event\WorkerMessageHandledEvent;
+use Symfony\Component\Messenger\Event\WorkerMessageReceivedEvent;
 use Symfony\Component\Messenger\Exception\HandlerFailedException;
 use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\Messenger\Stamp\ConsumedByWorkerStamp;
 use Symfony\Component\Messenger\Stamp\ReceivedStamp;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
+use Throwable;
 
 final class SimpleBusDriver implements BusDriver
 {
     /** @var LoggerInterface */
     private $logger;
+    /** @var EventDispatcherInterface|null */
+    private $eventDispatcher;
 
-    public function __construct(LoggerInterface $logger)
+    public function __construct(LoggerInterface $logger, ?EventDispatcherInterface $eventDispatcher = null)
     {
         $this->logger = $logger;
+        $this->eventDispatcher = $eventDispatcher;
     }
 
-    public function putEnvelopeOnBus(MessageBusInterface $bus, Envelope $envelope, string $transportName): Envelope
+    public function putEnvelopeOnBus(MessageBusInterface $bus, Envelope $envelope, string $transportName): ?Envelope
     {
-        try {
-            $envelope = $envelope->with(new ReceivedStamp($transportName), new ConsumedByWorkerStamp);
-            $envelope = $bus->dispatch($envelope);
+        $event = new WorkerMessageReceivedEvent($envelope, $transportName);
+        $this->dispatchEvent($event);
 
-            $message = $envelope->getMessage();
-            $this->logger->info('{class} was handled successfully.', [
-                'class' => get_class($message),
-                'message' => $message,
-                'transport' => $transportName,
-            ]);
-            return $envelope;
-        } catch (HandlerFailedException $e) {
-            while ($e instanceof HandlerFailedException) {
-                $e = $e->getPrevious() ?? $e;
+        if (! $event->shouldHandle()) {
+            return null;
+        }
+
+        try {
+            $handledEnvelope = $bus->dispatch($envelope->with(new ReceivedStamp($transportName), new ConsumedByWorkerStamp));
+        } catch (Throwable $throwable) {
+            if ($throwable instanceof HandlerFailedException) {
+                $envelope = $throwable->getEnvelope();
             }
 
-            throw $e;
+            $this->dispatchEvent(new WorkerMessageFailedEvent($envelope, $transportName, $throwable));
+
+            throw $throwable;
         }
+
+        $this->dispatchEvent(new WorkerMessageHandledEvent($envelope, $transportName));
+
+        $message = $envelope->getMessage();
+        $this->logger->info('{class} was handled successfully.', [
+            'class' => get_class($message),
+            'message' => $message,
+            'transport' => $transportName,
+        ]);
+
+        return $handledEnvelope;
+    }
+
+    private function dispatchEvent(object $event): void
+    {
+        if ($this->eventDispatcher === null) {
+            return;
+        }
+
+        $this->eventDispatcher->dispatch($event);
     }
 }

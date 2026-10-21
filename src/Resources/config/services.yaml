@@ -3,6 +3,7 @@ services:
     Bref\Symfony\Messenger\Service\SimpleBusDriver:
         arguments:
             - '@logger'
+            - '@event_dispatcher'
 
     Bref\Symfony\Messenger\Service\MessengerTransportConfiguration:
         arguments:
@@ -31,3 +32,4 @@ services:
             - '@bref.messenger.eventbridge_client'
     bref.messenger.eventbridge_client:
         class: AsyncAws\EventBridge\EventBridgeClient
+        public: true
